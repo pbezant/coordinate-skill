@@ -1,0 +1,9 @@
+{
+  "name": "coordinate",
+  "description": "Multi-session project coordinator skill for Claude Code: spawns cheap worker agents on an integration branch, verifies their work independently, and hands off cleanly between sessions.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Preston Bezant"
+  },
+  "skills": ["./skills/coordinate"]
+}

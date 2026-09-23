@@ -1,0 +1,13 @@
+{
+  "name": "coordinate-marketplace",
+  "owner": {
+    "name": "Preston Bezant"
+  },
+  "plugins": [
+    {
+      "name": "coordinate",
+      "source": "./",
+      "description": "Multi-session project coordinator: spawns cheap worker agents, verifies their work, and hands off cleanly between Claude Code sessions."
+    }
+  ]
+}
