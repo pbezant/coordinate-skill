@@ -4,6 +4,8 @@ A Claude Code **skill** that turns Claude into a project coordinator: it reads a
 
 You stop babysitting a single long-running agent session and start running a small fleet, with a paper trail (`PLAN.md` / `STATE.md` / `HISTORY.md`, committed to git) that any fresh session — yours or a teammate's — can pick up cold.
 
+![How the coordinate skill runs a fleet, not a session](docs/architecture.png)
+
 ## What it does
 
 - **Resumes from git-tracked state**, not conversation memory — `docs/coordination/{PLAN,STATE,HISTORY}.md` are the source of truth, so a brand-new session (or a different account) can take over exactly where the last one stopped.
