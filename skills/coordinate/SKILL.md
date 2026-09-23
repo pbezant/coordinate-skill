@@ -100,7 +100,14 @@ For every worker branch, yourself:
 6. **A failing test gets one retry before you call it real.** Passes on retry → log it as flaky in HISTORY.md and keep going, don't just wave it through silently — a test that's flaky today is a false negative tomorrow. Still fails → real, goes through the escalation below.
 7. After all merges, run the full suite **once**, alone, on the combined tree. Do not launch tests in parallel with a merge (a run against a moving tree is meaningless — kill and rerun).
 
-If a worker cannot fix something in 3 attempts, do not retry it on the same model: hand it to the next model up with the failure details. **If the next model up also fails 3 attempts, stop escalating models and escalate to the user instead**, with both attempts' failure details — bumping tiers again just spends more money to fail on the same broken assumption.
+If a worker cannot fix something in 3 attempts, do not retry it on the same model: hand it to the next model up with the failure details. **If the next model up also fails 3 attempts, stop escalating models and escalate to the user instead.**
+
+**Escalating to the user is not "reporting a blocker" — it's logging a defect.** Whatever forced the escalation (a worker stuck on both model tiers, an always-human-review hit, a diff over the size ceiling, a repeatedly-flaky test) gets written to STATE.md's `Blocked / needs user` table and a HISTORY entry in three parts, same as the failure — not just a "here's what happened":
+- **Symptom** — what was actually observed (both attempts' failure details, the exact diff-size/path, the test name), not a summary of it.
+- **Root cause** — one level deeper than the surface error. "Sonnet failed 3 times" is a symptom; "the plan's queue item didn't say which of two conflicting date-format conventions to follow" is a root cause.
+- **Proposed countermeasure** — the durable change that stops this recurring: a clarified plan item, a new worker constraint, a new always-human-review entry, a lowered diff-size ceiling for this kind of change. Not "be more careful next time."
+
+Once the user picks a countermeasure, **fold it back into PLAN.md's worker constraints (or `.coordinate.json`)** before spawning again on anything similar — a countermeasure that only lives in a HISTORY.md paragraph will not stop the next worker from making the same mistake, since workers are prompted from PLAN.md, not from HISTORY.md.
 
 ## Cleanup (`/coordinate cleanup`, and at the end of a cycle)
 
@@ -173,7 +180,7 @@ Last verification: <tsc status; exact test summary line; on which sha>
 | Target | Worker (session-local id, or `owner-direct`) | Branch | Model (or `n/a`) | Status (active/blocked/claimed-by:owner-direct) | Started |
 
 ## Blocked / needs user
-| Item | Blocked on | What to do |
+| Item | Symptom | Root cause | Proposed countermeasure |
 
 ## Follow-ups
 - <known gaps deliberately not fixed, with pointers>
@@ -189,4 +196,9 @@ Last verification: <tsc status; exact test summary line; on which sha>
 - Refs: <PRs, SHAs, branches>
 - Verified: <exact test/tsc result and on which sha>, or "not verified"
 - Budget: <items closed this cycle> · <approx /usage consumed this session>
+
+For an escalation, replace the first bullet with the three-part form and note where the countermeasure landed:
+- Symptom: <what was actually observed>
+- Root cause: <one level deeper than the surface error>
+- Countermeasure: <the durable change>, folded into: <PLAN.md worker constraints / .coordinate.json field>
 ```
