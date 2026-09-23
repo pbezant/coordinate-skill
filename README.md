@@ -47,7 +47,7 @@ The first run creates `docs/coordination/PLAN.md`, `STATE.md`, and `HISTORY.md` 
 
 Long agent sessions degrade: context fills up, an agent starts re-deriving things it already knew, and one session becomes a single point of failure. This skill pushes work out to short-lived, narrowly-scoped workers and keeps the only thing that has to survive between sessions — the plan and its state — in git, where it's cheap to read and impossible to lose.
 
-It was extracted from real use coordinating a multi-week refactor across many sessions and worker agents; the verification rules exist because of specific ways workers were caught overstating what they'd done.
+It was extracted from real use coordinating a multi-week refactor across many sessions and worker agents; the verification rules exist because of specific ways workers were caught overstating what they'd done. The escalation format borrows the "Andon" idea from manufacturing failure analysis — every stoppage gets a symptom, a root cause, and a countermeasure, and the countermeasure changes the process so the same defect can't recur.
 
 ## License
 
