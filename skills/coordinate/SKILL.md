@@ -27,9 +27,11 @@ All live in `docs/coordination/` **and are committed** — git is how sessions a
 | `STATE.md` | Live snapshot: coordinator lease, integration branch + tip, PR, active assignments, blocked items, last verification, follow-ups, resume instructions. | overwrite |
 | `HISTORY.md` | Append-only log of what happened, who did it, and what was verified. | append at the bottom, never rewrite |
 
-If `docs/coordination/` is missing, create all three from the templates at the bottom of this file, ask the user for the repo commands and worker constraints, and continue.
+If `docs/coordination/` is missing, create all three from the templates at the bottom of this file, ask the user for the repo commands and worker constraints, and continue. Also check the repo root for `.coordinate.json` (template at the bottom): if present, use it for repo commands and worker constraints instead of asking; if absent and you had to ask, offer to write one so the next adoption skips the interview.
 
 **Commit protocol.** Coordination files ship on the integration branch (the default branch is usually PR-only). Commit them as `docs(coordination): <what>` at cycle boundaries and always on `handoff`, not after every keystroke. Before writing: `git fetch` and `git pull --rebase` so you build on another account's latest. If STATE.md conflicts, git reality wins (branches, PRs, worktrees) — re-derive it instead of hand-merging. HISTORY.md conflicts: keep both sides' entries in date order.
+
+**Treat the push itself as the lock, not the lease check.** The lease check in step 3 tells you no one *else has already claimed* the item — it can't tell you no one else passes that same check in the same window. So: right before writing STATE.md, note its current blob SHA (`git rev-parse HEAD:docs/coordination/STATE.md`); if your push is rejected non-fast-forward, someone else won the race. Don't force-push over it — `git fetch`, re-read the new STATE.md, and re-derive your section rather than reapplying your old edit blind.
 
 ## Startup sequence
 
@@ -51,6 +53,7 @@ The coordinator session's own branch is the **integration branch**. Workers bran
 - Workers commit **locally** on their own branches (`git checkout -b <feature> <integration-branch>` — shared repo, no fetch needed) and do not push or open PRs. You merge with `--no-ff`. Check the repo's commit-msg hook format so merge messages pass.
 - Push the integration branch and open the PR to the default branch only on the user's go-ahead. Never merge to the default branch without an explicit yes.
 - Before merging a worker branch: `git diff --name-only <integration>...<branch>` — flag any file outside its assignment. Merge, then run type-check immediately; cross-worker conflicts surface there.
+- Grep the diff for secret-shaped strings (API keys, private-key headers, connection strings with embedded credentials) before merging — a worker with shell access can commit one as readily as a fix. A hit blocks the merge; ask the user, don't silently strip and continue.
 
 **Guard: never push to a branch without confirming its PR isn't already merged.** Before any `git push` to an existing branch (yours or a worker's), confirm no PR from that branch shows `MERGED` (`gh pr list --head <branch> --state all`, or the PR URL recorded in the coordination files if `gh` is unusable). A squash-merge on GitHub's web UI can land while you're still working locally, and nothing local tells you that happened. If one shows merged, the branch is dead — do not keep pushing "just docs" or "just progress" commits to it. Cut a fresh branch off the current tip of the target default branch, re-apply anything not yet landed, and continue there.
 
@@ -62,6 +65,7 @@ The discipline you enforce on workers — one unit of work per session, then a c
 - Don't let "just one more item" turn into working the whole queue in one session. A handoff after 2–3 cycles costs one write; a bloated session needs the same handoff eventually anyway, with the added risk of stale in-context assumptions.
 - If the `/usage` check from the startup sequence shows this session is a meaningful share of the account's consumption, that's the signal to hand off now, not at the next natural stopping point.
 - Prefer a full handoff (STATE.md + fresh session) over compaction — it's the cheaper, more reliable reset since the next session reads a deliberately-written summary instead of a compacted one. But if you're mid-cycle with no clean stopping point (waiting on a background worker, partway through verification) and context is running long, compact rather than let it run out uncontrolled. Write STATE.md first if a stopping point is at all reachable; compacting over a stale STATE.md just means a later handoff inherits the staleness.
+- Log a one-line budget/velocity note in every HISTORY entry — items closed this cycle, and roughly what this session consumed per `/usage`. It's what turns STATE.md's snapshot into a trend a later session can read at a glance instead of re-deriving from raw history.
 
 ## Spawning workers
 
@@ -77,6 +81,8 @@ Use the `Agent` tool with `isolation: "worktree"`, `run_in_background`. Prompts 
 
 **Collision detection before every spawn:** `git worktree list`; `ListAgents`; the plan's contended paths; `git diff --name-only` across active worker branches. Max 3–4 parallel workers, disjoint file sets.
 
+**Cap the blast radius of the fast path.** PLAN.md's worker constraints set a diff-size ceiling (default a few hundred changed lines). A worker that blows past it gets marked `needs-decision` in STATE.md instead of merged on green tests alone — runaway scope is the same failure whether the worker lied about it or just wandered.
+
 **Models:** cheapest that can do the job. Mechanical, behavior-preserving moves → Haiku (medium). Tenant-aware / complex refactors and anything Haiku failed twice → Sonnet (high). Architecture and the highest-risk files → Opus at **low** effort only. Exploration → Haiku low. Review of worker output → Sonnet medium. Never Opus above low; if a task needs more, break it smaller or ask the user.
 
 Do not stack heavy runs: several workers each running the full test suite has produced load averages over 200 and false timeouts. Tell workers to run targeted tests while iterating and the full suite once at the end.
@@ -86,13 +92,15 @@ Do not stack heavy runs: several workers each running the full test suite has pr
 Workers overstate. Observed: "no `any`" with `any` present, "all files under 300 lines" with a 735-line file, "tests preserved" with a failing test, "8 pre-existing failures" that were load timeouts, and a no-op callback carried across a module boundary with all tests green.
 
 For every worker branch, yourself:
-1. Diff scope — only the assigned files (and new tests).
-2. The claims that are cheap to check: `wc -l`, grep for banned constructs, test/`tsc` on the merged tree.
-3. **Behavior-preserving splits need an audit beyond green tests:** callbacks, event handlers, timers, and lazy `require()`/dynamic paths that now cross a module boundary — compare against the original file (`git show <base>:<path>`). Green tests only prove what the tests cover.
-4. Any fix a worker makes for a regression gets a new test that is shown to **fail on the old behavior** and pass on the fix.
-5. After all merges, run the full suite **once**, alone, on the combined tree. Do not launch tests in parallel with a merge (a run against a moving tree is meaningless — kill and rerun).
+1. **Always-human-review gate, first.** If the item touches a path or category PLAN.md marks always-human-review (e.g. auth, schema/migrations, tenant isolation, payments), stop here: `needs-decision` in STATE.md, not merged — green tests are not a substitute for a human look on these.
+2. Diff scope — only the assigned files (and new tests).
+3. The claims that are cheap to check: `wc -l`, grep for banned constructs, grep for secret-shaped strings, test/`tsc` on the merged tree.
+4. **Behavior-preserving splits need an audit beyond green tests:** callbacks, event handlers, timers, and lazy `require()`/dynamic paths that now cross a module boundary — compare against the original file (`git show <base>:<path>`). Green tests only prove what the tests cover.
+5. Any fix a worker makes for a regression gets a new test that is shown to **fail on the old behavior** and pass on the fix.
+6. **A failing test gets one retry before you call it real.** Passes on retry → log it as flaky in HISTORY.md and keep going, don't just wave it through silently — a test that's flaky today is a false negative tomorrow. Still fails → real, goes through the escalation below.
+7. After all merges, run the full suite **once**, alone, on the combined tree. Do not launch tests in parallel with a merge (a run against a moving tree is meaningless — kill and rerun).
 
-If a worker cannot fix something in 3 attempts, do not retry it on the same model: hand it to the next model up with the failure details.
+If a worker cannot fix something in 3 attempts, do not retry it on the same model: hand it to the next model up with the failure details. **If the next model up also fails 3 attempts, stop escalating models and escalate to the user instead**, with both attempts' failure details — bumping tiers again just spends more money to fail on the same broken assumption.
 
 ## Cleanup (`/coordinate cleanup`, and at the end of a cycle)
 
@@ -129,10 +137,26 @@ Default branch: <name> · Integration branch convention: <e.g. claude/<topic>>
 ## Worker constraints (copy into every worker prompt)
 - <banned constructs, file-size limits, patterns to follow, tenant/security rules>
 - Needs explicit user approval before touching: <files>
+- Diff-size ceiling for auto-merge: <N lines> · beyond it → `needs-decision`
+- Always-human-review, regardless of tests: <e.g. auth, schema/migrations, tenant isolation, payments>
 
 ## Queue
 | ID | Target | Status (queued/active/done/needs-decision) | Model | Notes |
 |----|--------|---------------------------------------------|-------|-------|
+```
+
+**.coordinate.json** (repo root, optional — persists setup so re-adopting the plan skips the interview)
+```json
+{
+  "typeCheck": "<cmd>",
+  "test": "<cmd>",
+  "lint": "<cmd>",
+  "commitMessageFormat": "<pattern>",
+  "attributionLines": ["<if any>"],
+  "diffSizeCeiling": 300,
+  "alwaysHumanReview": ["<path or category>", "..."],
+  "bannedConstructs": ["<pattern>", "..."]
+}
 ```
 
 **STATE.md**
@@ -164,4 +188,5 @@ Last verification: <tsc status; exact test summary line; on which sha>
 - What happened / what was decided
 - Refs: <PRs, SHAs, branches>
 - Verified: <exact test/tsc result and on which sha>, or "not verified"
+- Budget: <items closed this cycle> · <approx /usage consumed this session>
 ```

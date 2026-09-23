@@ -11,8 +11,11 @@ You stop babysitting a single long-running agent session and start running a sma
 - **Resumes from git-tracked state**, not conversation memory — `docs/coordination/{PLAN,STATE,HISTORY}.md` are the source of truth, so a brand-new session (or a different account) can take over exactly where the last one stopped.
 - **Spawns workers in isolated worktrees**, on the cheapest model that can do the job (Haiku for mechanical moves, Sonnet for anything tenant-aware or subtle, Opus reserved for architecture at low effort only).
 - **Never trusts a worker's self-report.** It independently diffs scope, runs the type-check and test suite itself, and audits behavior-preserving refactors for the kind of bug green tests don't catch (callbacks/timers/lazy requires crossing a module boundary).
-- **Guards against split-brain coordination**: verifies a stale `STATE.md` before trusting it, checks for a live peer session before taking over a lease, and detects work a human is doing directly in a worktree so it doesn't collide with it.
-- **Hands off instead of ballooning.** After 2-3 cycles it proposes a clean handoff to a fresh session rather than working the whole queue in one context window.
+- **Guards against split-brain coordination**: verifies a stale `STATE.md` before trusting it, checks for a live peer session before taking over a lease, treats the state-file push itself as the lock (not just the lease check) so two coordinators can't race each other, and detects work a human is doing directly in a worktree so it doesn't collide with it.
+- **Blocks on danger, not just failing tests.** Auth, schema/migration, tenant-isolation, or payment paths always go to a human regardless of green tests; a worker's diff that blows past the plan's size ceiling gets flagged instead of auto-merged; a worker that fails on two model tiers stops escalating and asks instead of burning more budget.
+- **Scans before it merges.** Greps every worker diff for secret-shaped strings before it lands, and gives a failing test one retry before calling it a real regression instead of either ignoring flakes or crying wolf.
+- **Hands off instead of ballooning.** After 2-3 cycles it proposes a clean handoff to a fresh session rather than working the whole queue in one context window, and logs a budget/velocity line each time so a later session can see the trend without re-reading raw history.
+- **Persists setup in `.coordinate.json`** so re-adopting a plan on a repo it's seen before skips the interview.
 
 ## Install
 
